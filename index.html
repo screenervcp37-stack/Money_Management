@@ -31,7 +31,7 @@
     }
     header {
       display: flex; align-items: baseline; gap: 12px;
-      margin-bottom: 28px; border-bottom: 1px solid var(--border); padding-bottom: 16px;
+      margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 16px;
     }
     header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .02em; }
     header span {
@@ -40,6 +40,19 @@
       border: 1px solid var(--border);
     }
     .layout { display: grid; gap: 14px; max-width: 560px; margin: 0 auto; }
+
+    /* Direction LONG / SHORT */
+    .dir-switch {
+      display: flex; gap: 0; border: 1px solid var(--border);
+      border-radius: 8px; overflow: hidden;
+    }
+    .dir-switch button {
+      flex: 1; padding: 12px 8px; background: var(--surface2); color: var(--muted);
+      border: none; cursor: pointer; font-size: 0.9rem; font-family: var(--sans);
+      font-weight: 700; letter-spacing: .05em; transition: background .15s, color .15s;
+    }
+    #d-long.active  { background: var(--green); color: #04150e; }
+    #d-short.active { background: var(--red);   color: #1a0505; }
 
     /* Mode switcher */
     .mode-switch {
@@ -141,6 +154,7 @@
       flex: 1; background: var(--surface2); border: 1px solid var(--border);
       border-radius: 7px; padding: 8px 6px; text-align: center;
     }
+    .r-chip.capped { border-color: #92400e; }
     .r-chip .r-label { font-size: 0.63rem; color: var(--muted); margin-bottom: 3px; }
     .r-chip .r-val { font-family: var(--mono); font-size: 0.82rem; font-weight: 600; color: var(--green); }
     .r-chip .r-gain { font-size: 0.65rem; color: var(--muted); margin-top: 2px; }
@@ -160,6 +174,12 @@
 </header>
 
 <div class="layout">
+
+  <!-- Direction -->
+  <div class="dir-switch">
+    <button id="d-long" class="active" onclick="setDirection('long')">LONG</button>
+    <button id="d-short" onclick="setDirection('short')">SHORT</button>
+  </div>
 
   <!-- Mode -->
   <div class="mode-switch">
@@ -191,14 +211,14 @@
   <div class="card">
     <div class="card-title">Ordre</div>
     <div class="field">
-      <label>Prix d'achat (€)</label>
+      <label id="price-label">Prix d'achat (€)</label>
       <input type="number" id="price" step="0.0001" placeholder="24.5000" />
     </div>
 
     <!-- Mode QTY : stop connu -->
     <div id="stop-block">
       <div class="field">
-        <label>Stop loss</label>
+        <label id="stop-label">Stop loss</label>
         <div class="stop-toggle">
           <button id="mode-price" class="active" onclick="setStopMode('price')">Prix (€)</button>
           <button id="mode-pct"   onclick="setStopMode('pct')">Distance (%)</button>
@@ -220,7 +240,7 @@
       <input type="number" id="fees" step="0.01" placeholder="1.99" />
     </div>
     <div class="field">
-      <label>Slippage (%) <span style="font-size:.7rem;color:var(--muted)">— appliqué au prix d'achat</span></label>
+      <label>Slippage (%) <span id="slip-hint" style="font-size:.7rem;color:var(--muted)">— dégrade le prix d'entrée</span></label>
       <input type="number" id="slippage" step="0.01" placeholder="0.15" />
     </div>
   </div>
@@ -239,14 +259,14 @@
 
     <!-- Nb titres (mode QTY) -->
     <div class="result-hero" id="qty-hero">
-      <div class="label">Nombre de titres</div>
+      <div class="label" id="r-qty-title">Nombre de titres</div>
       <div class="qty" id="r-qty">—</div>
       <div class="qty-label" id="r-qty-sub"></div>
     </div>
 
     <div class="metrics">
       <div class="metric">
-        <div class="m-label">Montant investi</div>
+        <div class="m-label" id="r-invest-label">Montant investi</div>
         <div class="m-value blue" id="r-invest">—</div>
       </div>
       <div class="metric">
@@ -283,7 +303,25 @@
 <script>
 const LS = "mm_defaults";
 let stopInputMode = "price";
-let calcMode = "qty"; // "qty" | "stop"
+let calcMode = "qty";      // "qty" | "stop"
+let direction = "long";    // "long" | "short"
+
+function setDirection(d) {
+  direction = d;
+  document.getElementById("d-long").classList.toggle("active", d === "long");
+  document.getElementById("d-short").classList.toggle("active", d === "short");
+
+  const isLong = d === "long";
+  document.getElementById("price-label").textContent =
+    isLong ? "Prix d'achat (€)" : "Prix d'entrée — vente à découvert (€)";
+  document.getElementById("stop-label").textContent =
+    isLong ? "Stop loss (sous l'entrée)" : "Stop loss (au-dessus de l'entrée)";
+  document.getElementById("slip-hint").textContent =
+    isLong ? "— dégrade le prix d'achat (↑)" : "— dégrade le prix de vente (↓)";
+
+  updateStopPlaceholder();
+  document.getElementById("result").style.display = "none";
+}
 
 function setCalcMode(m) {
   calcMode = m;
@@ -298,9 +336,18 @@ function setStopMode(m) {
   stopInputMode = m;
   document.getElementById("mode-price").classList.toggle("active", m === "price");
   document.getElementById("mode-pct").classList.toggle("active", m === "pct");
+  updateStopPlaceholder();
+}
+
+function updateStopPlaceholder() {
   const inp = document.getElementById("stop-val");
-  if (m === "price") { inp.step = "0.0001"; inp.placeholder = "23.0000"; }
-  else               { inp.step = "0.1";    inp.placeholder = "5.0"; }
+  if (stopInputMode === "price") {
+    inp.step = "0.0001";
+    inp.placeholder = direction === "long" ? "23.0000" : "26.0000";
+  } else {
+    inp.step = "0.1";
+    inp.placeholder = "5.0";
+  }
 }
 
 function loadDefaults() {
@@ -337,10 +384,16 @@ function calculate() {
   const slippage = parseFloat(document.getElementById("slippage").value) || 0;
 
   if ([capital, riskPct, price].some(isNaN) || price <= 0) {
-    alert("Remplis au moins : Capital, Risque %, Prix d'achat."); return;
+    alert("Remplis au moins : Capital, Risque %, Prix d'entrée."); return;
   }
 
-  const priceReal = price * (1 + slippage / 100);
+  const isLong = direction === "long";
+
+  // Slippage : dégrade toujours le prix d'exécution
+  //  - LONG : on achète plus cher (↑)
+  //  - SHORT : on vend moins cher (↓)
+  const priceReal = isLong ? price * (1 + slippage / 100)
+                           : price * (1 - slippage / 100);
   const riskMax   = capital * riskPct / 100;
   const budgetNet = riskMax - 2 * fees;
 
@@ -354,9 +407,23 @@ function calculate() {
     // ── Mode A : stop connu → calcule qty ──
     const stopRaw = parseFloat(document.getElementById("stop-val").value);
     if (isNaN(stopRaw)) { alert("Renseigne le stop loss."); return; }
-    stopPrice = stopInputMode === "price" ? stopRaw : priceReal * (1 - stopRaw / 100);
-    if (stopPrice >= priceReal) { alert("Le stop doit être inférieur au prix d'achat."); return; }
-    const riskPerShare = priceReal - stopPrice;
+
+    if (stopInputMode === "price") {
+      stopPrice = stopRaw;
+    } else {
+      // Distance % : sous l'entrée en LONG, au-dessus en SHORT
+      stopPrice = isLong ? priceReal * (1 - stopRaw / 100)
+                         : priceReal * (1 + stopRaw / 100);
+    }
+
+    if (isLong && stopPrice >= priceReal) {
+      alert("En LONG, le stop doit être SOUS le prix d'entrée."); return;
+    }
+    if (!isLong && stopPrice <= priceReal) {
+      alert("En SHORT, le stop doit être AU-DESSUS du prix d'entrée."); return;
+    }
+
+    const riskPerShare = Math.abs(priceReal - stopPrice);
     qty = Math.floor(budgetNet / riskPerShare);
     if (qty < 1) { alert("Impossible de prendre 1 titre avec ces paramètres."); return; }
 
@@ -364,39 +431,44 @@ function calculate() {
     // ── Mode B : qty connue → calcule stop max ──
     qty = parseInt(document.getElementById("qty-input").value);
     if (isNaN(qty) || qty < 1) { alert("Renseigne un nombre de titres valide."); return; }
-    // stopPrice = priceReal - budgetNet / qty
     const riskPerShare = budgetNet / qty;
-    stopPrice = priceReal - riskPerShare;
-    if (stopPrice <= 0) { alert("Stop calculé négatif : trop de titres pour ce risque."); return; }
+    // Stop sous l'entrée en LONG, au-dessus en SHORT
+    stopPrice = isLong ? priceReal - riskPerShare : priceReal + riskPerShare;
+    if (isLong && stopPrice <= 0) {
+      alert("Stop calculé négatif : trop de titres pour ce risque."); return;
+    }
   }
 
-  // Métriques communes
-  const riskPerShare = priceReal - stopPrice;
-  const invest       = qty * priceReal + fees;
+  // ── Métriques communes ──
+  const riskPerShare = Math.abs(priceReal - stopPrice);
+  const notional     = qty * priceReal;                       // exposition
+  const invest       = isLong ? notional + fees : notional;   // capital immobilisé / exposition
   const lossStop     = qty * riskPerShare + 2 * fees;
-  const pctCap       = invest / capital * 100;
+  const pctCap       = notional / capital * 100;
   const riskRealPct  = lossStop / capital * 100;
-  const stopDist     = (priceReal - stopPrice) / priceReal * 100;
+  const stopDist     = riskPerShare / priceReal * 100;
 
   // ── Render ──
   document.getElementById("result").style.display = "block";
 
-  // Stop suggestion block (mode B only)
-  const ssBl = document.getElementById("stop-suggestion");
+  const ssBl  = document.getElementById("stop-suggestion");
   const qHero = document.getElementById("qty-hero");
   if (calcMode === "stop") {
     ssBl.style.display = "block";
     qHero.style.display = "none";
     document.getElementById("r-stop-suggested").textContent = fmtE(stopPrice, 4);
     document.getElementById("r-stop-suggested-sub").textContent =
-      `Distance : ${fmtP(stopDist)} sous le prix réel (${fmtE(priceReal, 4)})`;
+      `Distance : ${fmtP(stopDist)} ${isLong ? "sous" : "au-dessus du"} prix réel (${fmtE(priceReal, 4)})`;
   } else {
     ssBl.style.display = "none";
     qHero.style.display = "block";
+    document.getElementById("r-qty-title").textContent =
+      isLong ? "Nombre de titres (achat)" : "Nombre de titres (vente à découvert)";
     document.getElementById("r-qty").textContent     = qty;
-    document.getElementById("r-qty-sub").textContent = `× ${fmt(priceReal,4)} € = ${fmtE(invest)}`;
+    document.getElementById("r-qty-sub").textContent = `× ${fmt(priceReal,4)} € = ${fmtE(notional)} d'exposition`;
   }
 
+  document.getElementById("r-invest-label").textContent = isLong ? "Montant investi" : "Exposition notionnelle";
   document.getElementById("r-invest").textContent    = fmtE(invest);
   document.getElementById("r-pct-cap").textContent   = fmtP(pctCap);
   document.getElementById("r-risk-eur").textContent  = fmtE(lossStop);
@@ -404,26 +476,41 @@ function calculate() {
   document.getElementById("r-stop").textContent      = fmtE(stopPrice, 4);
   document.getElementById("r-stop-dist").textContent = fmtP(stopDist);
 
-  // R-multiples
+  // ── R-multiples ──
+  // LONG : objectifs au-dessus de l'entrée / SHORT : en dessous.
+  // En SHORT le gain max est plafonné (prix → 0).
+  const gainMaxShort = notional - 2 * fees;
   const rRow = document.getElementById("r-targets");
   rRow.innerHTML = "";
+  let anyCapped = false;
   for (const r of [2, 3, 5]) {
-    const tPrice = priceReal + r * riskPerShare;
-    const gain   = qty * r * riskPerShare - 2 * fees;
-    const chip   = document.createElement("div");
-    chip.className = "r-chip";
+    let tPrice = isLong ? priceReal + r * riskPerShare
+                        : priceReal - r * riskPerShare;
+    let gain = qty * r * riskPerShare - 2 * fees;
+    let capped = false;
+
+    if (!isLong && tPrice <= 0) {
+      tPrice = 0;
+      gain = gainMaxShort;
+      capped = true;
+      anyCapped = true;
+    }
+
+    const chip = document.createElement("div");
+    chip.className = "r-chip" + (capped ? " capped" : "");
     chip.innerHTML = `
       <div class="r-label">${r}R</div>
       <div class="r-val">${fmt(tPrice, 4)} €</div>
-      <div class="r-gain">+${fmtE(gain)}</div>`;
+      <div class="r-gain">+${fmtE(gain)}${capped ? " *" : ""}</div>`;
     rRow.appendChild(chip);
   }
 
-  // Warnings
+  // ── Warnings ──
   const warns = [];
   if (pctCap > 30) warns.push(`⚠️ Ligne à ${fmtP(pctCap)} du capital — dépasse la limite des 30%.`);
   if (riskRealPct > riskPct * 1.05) warns.push(`⚠️ Risque réel (${fmtP(riskRealPct)}) supérieur au seuil — effet des frais.`);
   if (calcMode === "stop" && stopDist < 2) warns.push(`⚠️ Stop très serré (${fmtP(stopDist)}) — risque de stop out sur volatilité normale.`);
+  if (anyCapped) warns.push(`* Objectif au-delà d'une baisse de 100% : plafonné (prix → 0, gain max = exposition).`);
   const wEl = document.getElementById("r-warning");
   wEl.innerHTML = warns.join("<br>");
   wEl.style.display = warns.length ? "block" : "none";
@@ -432,6 +519,7 @@ function calculate() {
 }
 
 document.addEventListener("keydown", e => { if (e.key === "Enter") calculate(); });
+setDirection("long");
 loadDefaults();
 </script>
 </body>
